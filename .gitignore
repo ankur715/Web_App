@@ -1,0 +1,11 @@
+# Secrets
+.env
+credentials.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Local data
+skypad_analytics.db
