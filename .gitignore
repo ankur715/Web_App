@@ -8,4 +8,7 @@ __pycache__/
 venv/
 
 # Local data
-skypad_analytics.db
+retail_sales_analytics.db
+
+# macOS
+.DS_Store

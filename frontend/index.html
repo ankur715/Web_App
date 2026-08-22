@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Skypad Analytics Chatbot</title>
+<title>Retail Sales Analytics Chatbot</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -199,7 +199,7 @@
 <body>
 
 <header>
-  <h1>🛍️ Skypad Analytics <span class="sub">SAKS Fifth Avenue &middot; sales chatbot</span></h1>
+  <h1>🛍️ Retail Sales Analytics <span class="sub">SAKS Fifth Avenue &middot; sales chatbot</span></h1>
   <span id="status">checking backend&hellip;</span>
 </header>
 
@@ -220,7 +220,10 @@
 </form>
 
 <script>
-  const API_BASE = "http://localhost:8000";
+  // Opened as a local file (desktop convenience): talk to the backend on localhost.
+  // Served BY the backend itself (e.g. a phone hitting http://<mac-ip>:8000/):
+  // use relative paths so it works from any device on the network, same-origin.
+  const API_BASE = window.location.protocol.startsWith("http") ? "" : "http://localhost:8000";
   const messagesEl = document.getElementById("messages");
   const form = document.getElementById("composer");
   const input = document.getElementById("question");
@@ -327,9 +330,13 @@
     });
   }
 
+  // Harmless when not behind ngrok; bypasses ngrok's browser-warning
+  // interstitial when this page is loaded through an ngrok tunnel.
+  const NGROK_SKIP_HEADER = { "ngrok-skip-browser-warning": "true" };
+
   async function checkHealth() {
     try {
-      const res = await fetch(`${API_BASE}/health`);
+      const res = await fetch(`${API_BASE}/health`, { headers: NGROK_SKIP_HEADER });
       const data = await res.json();
       if (data.llm_configured) {
         statusEl.textContent = `● connected (${data.model})`;
@@ -356,7 +363,7 @@
     try {
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...NGROK_SKIP_HEADER },
         body: JSON.stringify({ message: text }),
       });
       typingWrap.remove();
