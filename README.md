@@ -10,8 +10,12 @@ app.
 
 ### Architecture
 
-- **Backend** (`app.py`) — FastAPI + SQLite + Google Gemini (`google-genai`). Owns the data,
-  the NL→SQL pipeline, and also serves the frontend as static files.
+- **Backend** (`app.py`) — FastAPI + SQLite + Google Gemini (`google-genai`). Owns the one-time
+  historical seed, the NL→SQL pipeline, and also serves the frontend as static files.
+- **Pipeline** (`airflow/`) — a standalone Apache Airflow DAG (`retail_sales_pipeline`) that owns
+  the *ongoing* data: it generates each day's new transactions, loads them into the same SQLite
+  database, computes a daily revenue/top-product summary, and runs data quality checks. See
+  [Data pipeline](#data-pipeline-airflow) below.
 - **Frontend** (`frontend/index.html`) — a single self-contained HTML/JS chat page. No build
   step; it's served directly by the backend, or can be opened as a local file.
 - **Mobile** (`mobile/`) — an Expo Router (SDK 54) app that displays the same chat page inside
@@ -19,18 +23,38 @@ app.
 
 ### Data model
 
-The backend seeds a SQLite database (`retail_sales_analytics.db`) with five tables on first run:
+`app.py` seeds a SQLite database (`retail_sales_analytics.db`) with five tables on first run;
+Airflow adds a sixth, derived one. The product/store/customer catalog and row generator live in
+`shared/retail_data.py`, a single source of truth used by both `app.py` and the DAG.
 
 | Table | Columns | Notes |
 |---|---|---|
 | `retail_sales_products` | `product_id`, `product_name`, `category`, `brand`, `unit_price` | Shoes/Bags/Watches from brands like Nike, Gucci, Rolex |
 | `retail_sales_stores` | `store_id`, `store_name`, `city`, `state`, `zip_code` | 5 SAKS Fifth Avenue store locations |
 | `retail_sales_customers` | `customer_id`, `customer_name`, `email`, `loyalty_status`, `lifetime_value` | Loyalty tiers: Silver/Gold/Platinum |
-| `retail_sales_sales_data` | `transaction_id`, `store_id`, `product_id`, `customer_id`, `quantity`, `unit_price`, `total_sales`, `sales_date`, `sales_month`, `sales_year` | Randomly generated (fixed seed) transactions spanning the last 6 months |
+| `retail_sales_sales_data` | `transaction_id`, `store_id`, `product_id`, `customer_id`, `quantity`, `unit_price`, `total_sales`, `sales_date`, `sales_month`, `sales_year` | Seeded with 6 months of history (fixed seed); Airflow appends new rows for each day it runs |
 | `retail_sales_inventory` | `inventory_id`, `store_id`, `product_id`, `quantity_on_hand`, `reorder_level` | Stock levels per store/product |
+| `retail_sales_daily_summary` | `sales_date`, `store_id`, `total_revenue`, `top_product_id`, `computed_at` | Built by Airflow's `compute_daily_analytics` task, PK `(sales_date, store_id)` |
 
 `sales_date` is `YYYY-MM-DD`, `sales_month` is `YYYY-MM` — both exist so the chatbot can resolve
 relative time questions ("last month", "this year") without doing date math in SQL.
+
+### Data pipeline (Airflow)
+
+![Airflow DAG](pics/airflow_dag.jpg)
+
+`airflow/` runs a standalone Apache Airflow instance (`airflow standalone` — no Docker) with one
+DAG, `retail_sales_pipeline`, scheduled daily:
+
+1. **`generate_daily_sales`** — simulate that day's new transactions.
+2. **`load_to_sqlite`** — insert them into `retail_sales_analytics.db`.
+3. **`compute_daily_analytics`** — pandas aggregation into `retail_sales_daily_summary` (revenue
+   by store/day, top product). Runs via `PythonVirtualenvOperator`, so pandas is installed into
+   its own throwaway venv per run rather than into Airflow's base environment.
+4. **`data_quality_checks`** — fails the run if any newly loaded row references an unknown
+   store/product/customer, or `total_sales != quantity * unit_price`.
+
+Setup and more detail: [`airflow/README.md`](airflow/README.md).
 
 ### The chatbot (backend)
 
