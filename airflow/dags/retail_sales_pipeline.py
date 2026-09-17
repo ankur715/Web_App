@@ -34,10 +34,12 @@ ROWS_PER_DAY = 8
 def retail_sales_pipeline():
     @task
     def generate_daily_sales() -> list[list]:
-        # Keyed off the DAG run's logical_date (not wall-clock "now") and
+        # Keyed off the DAG run's run_after (not wall-clock "now") and
         # deterministic per date, so re-running/backfilling a date is safe.
-        logical_date = get_current_context()["logical_date"]
-        rows = generate_rows_for_date(target_date=logical_date.date(), count=ROWS_PER_DAY)
+        # logical_date/data_interval_start are both nullable for manual runs
+        # in this Airflow version; run_after is the one field always set.
+        run_after = get_current_context()["dag_run"].run_after
+        rows = generate_rows_for_date(target_date=run_after.date(), count=ROWS_PER_DAY)
         return [list(row) for row in rows]
 
     @task
