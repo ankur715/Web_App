@@ -65,14 +65,16 @@ def generate_sales_rows(num_months: int = 6, rows_per_month: int = 18) -> list[t
     return rows
 
 
-def generate_rows_for_date(target_date: date, count: int, start_txn_num: int) -> list[tuple]:
-    """Incremental generator: `count` new (unseeded, varied) rows dated
-    `target_date`, continuing transaction ids from `start_txn_num`. Used by
-    the Airflow pipeline for the daily refresh."""
-    rng = random.Random()
+def generate_rows_for_date(target_date: date, count: int) -> list[tuple]:
+    """Idempotent generator: deterministic rows for `target_date`, seeded and
+    keyed by the date itself so re-running the same date always produces the
+    same rows (same ids, same content) rather than piling on duplicates. Used
+    by the Airflow pipeline for the daily refresh."""
+    date_key = target_date.strftime("%Y%m%d")
+    rng = random.Random(date_key)
     rows = []
     for i in range(count):
-        txn_id = f"TXN_{start_txn_num + i:06d}"
+        txn_id = f"TXN_D{date_key}_{i:03d}"
         rows.append(_make_row(rng, txn_id, target_date))
     return rows
 

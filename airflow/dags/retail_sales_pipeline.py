@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from airflow.sdk import dag, task
+from airflow.sdk import dag, get_current_context, task
 
 # app.py and this DAG both need shared/retail_data.py; the dags folder isn't
 # a package relative to the repo root, so add it to sys.path explicitly.
@@ -34,22 +34,17 @@ ROWS_PER_DAY = 8
 def retail_sales_pipeline():
     @task
     def generate_daily_sales() -> list[list]:
-        conn = sqlite3.connect(DB_PATH)
-        next_txn_num = conn.execute("SELECT COUNT(*) FROM retail_sales_sales_data").fetchone()[0] + 1
-        conn.close()
-
-        rows = generate_rows_for_date(
-            target_date=datetime.today().date(),
-            count=ROWS_PER_DAY,
-            start_txn_num=next_txn_num,
-        )
+        # Keyed off the DAG run's logical_date (not wall-clock "now") and
+        # deterministic per date, so re-running/backfilling a date is safe.
+        logical_date = get_current_context()["logical_date"]
+        rows = generate_rows_for_date(target_date=logical_date.date(), count=ROWS_PER_DAY)
         return [list(row) for row in rows]
 
     @task
     def load_to_sqlite(rows: list[list]) -> int:
         conn = sqlite3.connect(DB_PATH)
         conn.executemany(
-            "INSERT OR IGNORE INTO retail_sales_sales_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO retail_sales_sales_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
         conn.commit()
@@ -105,32 +100,24 @@ def retail_sales_pipeline():
         print(f"Wrote {len(summary)} daily summary rows.")
 
     @task
-    def data_quality_checks(loaded_count: int):
+    def data_quality_checks(rows: list[list]):
         valid_stores = {s[0] for s in STORES}
         valid_products = {p[0] for p in PRODUCTS}
         valid_customers = {c[0] for c in CUSTOMERS}
 
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM retail_sales_sales_data ORDER BY transaction_id DESC LIMIT ?",
-            (loaded_count,),
-        ).fetchall()
-        conn.close()
-
         errors = []
         for row in rows:
-            if row["store_id"] not in valid_stores:
-                errors.append(f"{row['transaction_id']}: unknown store_id {row['store_id']}")
-            if row["product_id"] not in valid_products:
-                errors.append(f"{row['transaction_id']}: unknown product_id {row['product_id']}")
-            if row["customer_id"] not in valid_customers:
-                errors.append(f"{row['transaction_id']}: unknown customer_id {row['customer_id']}")
-            expected_total = round(row["quantity"] * row["unit_price"], 2)
-            if abs(row["total_sales"] - expected_total) > 0.01:
+            txn_id, store_id, product_id, customer_id, quantity, unit_price, total_sales = row[:7]
+            if store_id not in valid_stores:
+                errors.append(f"{txn_id}: unknown store_id {store_id}")
+            if product_id not in valid_products:
+                errors.append(f"{txn_id}: unknown product_id {product_id}")
+            if customer_id not in valid_customers:
+                errors.append(f"{txn_id}: unknown customer_id {customer_id}")
+            expected_total = round(quantity * unit_price, 2)
+            if abs(total_sales - expected_total) > 0.01:
                 errors.append(
-                    f"{row['transaction_id']}: total_sales {row['total_sales']} != "
-                    f"quantity*unit_price {expected_total}"
+                    f"{txn_id}: total_sales {total_sales} != quantity*unit_price {expected_total}"
                 )
 
         if errors:
@@ -140,8 +127,9 @@ def retail_sales_pipeline():
     rows = generate_daily_sales()
     loaded_count = load_to_sqlite(rows)
     analytics = compute_daily_analytics(DB_PATH)
-    data_quality_checks(loaded_count)
+    quality = data_quality_checks(rows)
     loaded_count >> analytics
+    loaded_count >> quality
 
 
 retail_sales_pipeline()
