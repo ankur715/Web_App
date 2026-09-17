@@ -7,6 +7,10 @@ __pycache__/
 *.pyc
 venv/
 
+# Airflow (standalone, local only)
+airflow/.venv/
+airflow/airflow_home/
+
 # Local data
 retail_sales_analytics.db
 
