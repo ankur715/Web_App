@@ -22,6 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from google import genai
 from pydantic import BaseModel
 
+from shared.retail_data import CUSTOMERS, PRODUCTS, STORES, generate_sales_rows
+
 load_dotenv()
 
 app = FastAPI(title="Retail Sales Analytics Chatbot")
@@ -56,86 +58,6 @@ else:
 # SQLite database setup
 # ---------------------------------------------------------------------------
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "retail_sales_analytics.db")
-
-PRODUCTS = [
-    ("NIKE_001", "Nike Air Max 90", "Shoes", "Nike", 129.99),
-    ("NIKE_002", "Nike Air Max 95", "Shoes", "Nike", 139.99),
-    ("NIKE_003", "Nike Blazer", "Shoes", "Nike", 109.99),
-    ("ADIDAS_001", "Adidas Ultraboost", "Shoes", "Adidas", 179.99),
-    ("ADIDAS_002", "Adidas Stan Smith", "Shoes", "Adidas", 89.99),
-    ("GUCCI_001", "Gucci GG Marmont", "Bags", "Gucci", 1290.00),
-    ("GUCCI_002", "Gucci Soho", "Bags", "Gucci", 1150.00),
-    ("PRADA_001", "Prada Nylon Backpack", "Bags", "Prada", 1450.00),
-    ("COACH_001", "Coach Signature Tote", "Bags", "Coach", 295.00),
-    ("CHANEL_001", "Chanel Classic Flap", "Bags", "Chanel", 5800.00),
-    ("LV_001", "Louis Vuitton Speedy", "Bags", "Louis Vuitton", 1450.00),
-    ("ROLEX_001", "Rolex Submariner", "Watches", "Rolex", 9150.00),
-    ("OMEGA_001", "Omega Seamaster", "Watches", "Omega", 5200.00),
-]
-
-STORES = [
-    ("STORE_001", "SAKS Fifth Avenue - NYC", "New York", "NY", "10022"),
-    ("STORE_002", "SAKS Fifth Avenue - LA", "Los Angeles", "CA", "90210"),
-    ("STORE_003", "SAKS Fifth Avenue - Chicago", "Chicago", "IL", "60611"),
-    ("STORE_004", "SAKS Fifth Avenue - Miami", "Miami", "FL", "33139"),
-    ("STORE_005", "SAKS Fifth Avenue - Boston", "Boston", "MA", "02116"),
-]
-
-CUSTOMERS = [
-    ("CUST_001", "John Smith", "john@email.com", "Gold", 5432.10),
-    ("CUST_002", "Jane Doe", "jane@email.com", "Platinum", 12543.50),
-    ("CUST_003", "Michael Brown", "michael@email.com", "Silver", 3210.75),
-    ("CUST_004", "Sarah Johnson", "sarah@email.com", "Platinum", 18765.25),
-    ("CUST_005", "David Lee", "david@email.com", "Gold", 7654.80),
-    ("CUST_006", "Emily Davis", "emily@email.com", "Silver", 2100.40),
-    ("CUST_007", "Chris Wilson", "chris@email.com", "Gold", 6890.15),
-    ("CUST_008", "Amanda Clark", "amanda@email.com", "Platinum", 22310.00),
-]
-
-
-def _generate_sales_rows(num_months: int = 6, rows_per_month: int = 18):
-    """Generate deterministic-but-varied dummy sales rows spanning the last
-    `num_months` months (relative to today), so time-based questions like
-    'last month' or 'this year' actually return data."""
-    rng = random.Random(42)  # fixed seed -> same dummy data every run
-    rows = []
-    txn_num = 1
-    today = date.today()
-
-    for month_offset in range(num_months, -1, -1):
-        # Roughly step back `month_offset` months from today
-        year = today.year
-        month = today.month - month_offset
-        while month <= 0:
-            month += 12
-            year -= 1
-
-        for _ in range(rows_per_month):
-            day = rng.randint(1, 28)
-            sales_date = date(year, month, day)
-            product = rng.choice(PRODUCTS)
-            store = rng.choice(STORES)
-            customer = rng.choice(CUSTOMERS)
-            quantity = rng.randint(1, 4)
-            unit_price = product[4]
-            total_sales = round(quantity * unit_price, 2)
-
-            txn_id = f"TXN_{txn_num:04d}"
-            rows.append((
-                txn_id,
-                store[0],
-                product[0],
-                customer[0],
-                quantity,
-                unit_price,
-                total_sales,
-                sales_date.isoformat(),
-                sales_date.strftime("%Y-%m"),
-                sales_date.year,
-            ))
-            txn_num += 1
-
-    return rows
 
 
 def init_database():
@@ -205,7 +127,7 @@ def init_database():
         c.executemany("INSERT INTO retail_sales_customers VALUES (?, ?, ?, ?, ?)", CUSTOMERS)
         c.executemany(
             "INSERT INTO retail_sales_sales_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            _generate_sales_rows(),
+            generate_sales_rows(),
         )
 
         rng = random.Random(7)
